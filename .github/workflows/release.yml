@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -19,9 +21,10 @@ jobs:
           sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi
 
       - name: Setup Pico SDK
-        uses: pico-sdk/actions/setup@v1
-        with:
-          sdk-version: '1.5.1'
+        run: |
+          git clone --depth 1 --branch 2.1.0 https://github.com/raspberrypi/pico-sdk.git /opt/pico-sdk
+          cd /opt/pico-sdk && git submodule update --init --depth 1
+          echo "PICO_SDK_PATH=/opt/pico-sdk" >> $GITHUB_ENV
 
       - name: Build firmware
         run: |
