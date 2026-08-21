@@ -1,0 +1,14 @@
+{
+  "name": "streamdeck-config",
+  "version": "1.0.0",
+  "description": "RP2040 Stream Deck Configuration App",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

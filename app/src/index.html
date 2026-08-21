@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StreamDeck Config</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="titlebar-icon">SD</div>
+  <h1>StreamDeck Config</h1>
+  <span class="version">v1.0.0</span>
+</div>
+
+<div class="content">
+  <div class="header">
+    <h2>Button Configuration</h2>
+    <div class="sub">Live editor over WebSerial &mdash; changes apply instantly, no reflash needed.</div>
+  </div>
+
+  <div class="toolbar">
+    <button id="connectBtn">Connect</button>
+    <button id="saveFlashBtn" class="secondary" disabled>Save to flash</button>
+    <button id="refreshBtn" class="secondary" disabled>Reload from device</button>
+    <span id="status" class="status">
+      <span class="status-dot"></span>
+      <span id="statusText">Not connected</span>
+    </span>
+  </div>
+
+  <div class="grid" id="grid">
+    <div class="empty-state">
+      <h3>No device connected</h3>
+      <p>Click "Connect" to select your RP2040 Stream Deck serial port.</p>
+    </div>
+  </div>
+
+  <footer>
+    Requires Chrome or Edge with WebSerial support.
+    Works on macOS, Windows, and Linux &mdash; pick the right serial port when connecting.
+    "Save to flash" persists the current live mapping so it survives a power cycle;
+    without it, changes apply immediately but reset to the last saved mapping on reboot.
+  </footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
