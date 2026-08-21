@@ -10,10 +10,9 @@
     "beforeBuildCommand": ""
   },
   "app": {
-    "title": "StreamDeck Config",
     "windows": [
       {
-        "title": "StreamDeck Config",
+        "label": "main",
         "width": 1000,
         "height": 700,
         "resizable": true,
