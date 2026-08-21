@@ -1,0 +1,24 @@
+# Build artifacts
+build/
+firmware/build/
+companion/__pycache__/
+*.pyc
+
+# Old project structure (use firmware/ instead)
+src/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Node / Tauri
+node_modules/
+src-tauri/target/
+
+# Duplicate webconfig files
+webconfig/index (1).html
+webconfig/index (2).html

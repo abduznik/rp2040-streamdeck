@@ -1,0 +1,38 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake gcc-arm-none-eabi libnewlib-arm-none-eabi
+
+      - name: Setup Pico SDK
+        uses: pico-sdk/actions/setup@v1
+        with:
+          sdk-version: '1.5.1'
+
+      - name: Build firmware
+        run: |
+          cd firmware
+          mkdir build && cd build
+          cmake -DPICO_SDK_PATH=$PICO_SDK_PATH ..
+          make -j$(nproc)
+
+      - name: Create release and upload firmware
+        uses: softprops/action-gh-release@v2
+        with:
+          files: firmware/build/streamdeck.uf2
+          draft: false
+          generate_release_notes: true
