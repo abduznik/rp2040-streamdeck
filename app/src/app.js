@@ -1,30 +1,19 @@
-
 // ---------------------------------------------------------------------------
-// Protocol constants
+// Tauri StreamDeck Config – uses window.__TAURI__.core.invoke() for all IPC
 // ---------------------------------------------------------------------------
-const SOF = 0xAA;
-const CMD_GET_MAPPING = 0x01;
-const CMD_SET_BUTTON  = 0x02;
-const CMD_SAVE_FLASH  = 0x03;
-const CMD_PING        = 0x04;
-
-const REPLY_MAPPING     = 0x81;
-const REPLY_BUTTON_ACK  = 0x82;
-const REPLY_SAVE_ACK    = 0x83;
-const REPLY_PONG        = 0x84;
-const REPLY_ERROR       = 0xFF;
-
-const NUM_BUTTONS = 6;
-const MAX_MACRO_STEPS = 16;
-const TEXT_MAX_LEN = 256;
-
 const ACTION_SIZE = 1 + 258 + 24;
-const MAPPING_TABLE_SIZE = 4 + 4 + (ACTION_SIZE * NUM_BUTTONS) + 4;
 
 const ACTION_NONE = 0, ACTION_KEY = 1, ACTION_CONSUMER = 2, ACTION_MACRO = 3,
       ACTION_TEXT = 4, ACTION_PASTE = 5, ACTION_LAUNCHER = 6;
 
 const LAUNCHER_MAC = 0, LAUNCHER_WINDOWS = 1, LAUNCHER_LINUX = 2;
+const NUM_BUTTONS = 6;
+const MAX_MACRO_STEPS = 16;
+const TEXT_MAX_LEN = 256;
+
+function invoke(command, args) {
+  return window.__TAURI__.core.invoke(command, args || {});
+}
 
 // ---------------------------------------------------------------------------
 // HID key mapping helpers
@@ -121,13 +110,10 @@ function jsModToHid(e) {
 }
 
 // ---------------------------------------------------------------------------
-// Serial connection state
+// Connection state
 // ---------------------------------------------------------------------------
-let port = null;
-let reader = null;
-let writer = null;
-let rxBuffer = [];
-let pendingResolvers = [];
+let connected = false;
+let currentPort = null;
 
 const statusEl = document.getElementById('status');
 const statusText = document.getElementById('statusText');
@@ -141,78 +127,144 @@ function setStatus(text, cls) {
   statusEl.className = 'status' + (cls ? ' ' + cls : '');
 }
 
-connectBtn.addEventListener('click', connect);
+connectBtn.addEventListener('click', showPortPicker);
 saveFlashBtn.addEventListener('click', saveFlash);
 refreshBtn.addEventListener('click', loadMapping);
 
-async function connect() {
-  if (!('serial' in navigator)) {
-    setStatus('WebSerial not supported - use Chrome or Edge', 'err');
+// ---------------------------------------------------------------------------
+// Port selection UI
+// ---------------------------------------------------------------------------
+
+async function showPortPicker() {
+  if (connected) {
+    await doDisconnect();
     return;
   }
+
+  setStatus('Scanning ports...', null);
+  let ports;
   try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200 });
-    writer = port.writable.getWriter();
-    readLoop();
-    setStatus('Connected', 'ok');
-    connectBtn.textContent = 'Reconnect';
+    ports = await invoke('list_ports');
+  } catch (e) {
+    setStatus('Failed to list ports: ' + e, 'err');
+    return;
+  }
+
+  if (!ports || ports.length === 0) {
+    setStatus('No serial ports found', 'err');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'recording-overlay';
+
+  const box = document.createElement('div');
+  box.className = 'box';
+  box.style.minWidth = '320px';
+
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Select Serial Port';
+  box.appendChild(h2);
+
+  const sel = document.createElement('select');
+  sel.style.width = '100%';
+  sel.style.marginBottom = '12px';
+  ports.forEach(function(p) {
+    const opt = document.createElement('option');
+    opt.value = p;
+    opt.textContent = p;
+    sel.appendChild(opt);
+  });
+  box.appendChild(sel);
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
+
+  const connectOk = document.createElement('button');
+  connectOk.textContent = 'Connect';
+  connectOk.addEventListener('click', async function() {
+    const portName = sel.value;
+    overlay.remove();
+    await doConnect(portName);
+  });
+  btnRow.appendChild(connectOk);
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.className = 'secondary';
+  cancelBtn.addEventListener('click', function() {
+    overlay.remove();
+    setStatus('Not connected', null);
+  });
+  btnRow.appendChild(cancelBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
+async function doConnect(portName) {
+  try {
+    setStatus('Connecting...', null);
+    const result = await invoke('connect_port', { portName });
+    connected = true;
+    currentPort = portName;
+    setStatus('Connected to ' + portName, 'ok');
+    connectBtn.textContent = 'Disconnect';
     saveFlashBtn.disabled = false;
     refreshBtn.disabled = false;
     await loadMapping();
   } catch (e) {
-    setStatus('Connection failed: ' + e.message, 'err');
+    setStatus('Connect failed: ' + e, 'err');
   }
 }
 
-async function readLoop() {
-  const localReader = port.readable.getReader();
-  reader = localReader;
+async function doDisconnect() {
   try {
-    while (true) {
-      const { value, done } = await localReader.read();
-      if (done) break;
-      for (const b of value) rxBuffer.push(b);
-      tryParsePackets();
-    }
+    await invoke('disconnect_port');
   } catch (e) {
-    setStatus('Read error: ' + e.message, 'err');
-  } finally {
-    localReader.releaseLock();
+    // ignore
+  }
+  connected = false;
+  currentPort = null;
+  setStatus('Disconnected', null);
+  connectBtn.textContent = 'Connect';
+  saveFlashBtn.disabled = true;
+  refreshBtn.disabled = true;
+  grid.innerHTML = '<div class="empty-state"><h3>No device connected</h3><p>Click "Connect" to select your Stream Deck serial port.</p></div>';
+}
+
+// ---------------------------------------------------------------------------
+// Mapping (via Tauri commands)
+// ---------------------------------------------------------------------------
+
+async function loadMapping() {
+  try {
+    setStatus('Loading mapping...', null);
+    const mapping = await invoke('get_mapping');
+    currentMapping = mapping || [];
+    renderGrid();
+    setStatus('Connected', 'ok');
+  } catch (e) {
+    setStatus('Load failed: ' + e, 'err');
   }
 }
 
-function tryParsePackets() {
-  while (true) {
-    if (rxBuffer.length >= 2 && rxBuffer[0] === 0xBE) {
-      const btnIdx = rxBuffer[1];
-      rxBuffer = rxBuffer.slice(2);
-      handleClipboardReady(btnIdx);
-      continue;
-    }
+// ---------------------------------------------------------------------------
+// Paste / clipboard handling
+// ---------------------------------------------------------------------------
+// The firmware sends a 0xBE notification when a Paste button is pressed.
+// In the WebSerial version this came via the serial read loop. In the Tauri
+// version the backend should listen for that packet and emit a Tauri event.
+// We listen for it here.
 
-    const sofIdx = rxBuffer.indexOf(SOF);
-    if (sofIdx === -1) { rxBuffer = []; return; }
-    if (sofIdx > 0) rxBuffer = rxBuffer.slice(sofIdx);
-    if (rxBuffer.length < 4) return;
+let currentMapping = [];
 
-    const cmd = rxBuffer[1];
-    const len = rxBuffer[2] | (rxBuffer[3] << 8);
-    const totalLen = 4 + len + 1;
-    if (rxBuffer.length < totalLen) return;
-
-    const payload = new Uint8Array(rxBuffer.slice(4, 4 + len));
-    const checksum = rxBuffer[4 + len];
-    let computed = cmd + rxBuffer[2] + rxBuffer[3];
-    for (const b of payload) computed += b;
-    computed &= 0xFF;
-
-    rxBuffer = rxBuffer.slice(totalLen);
-
-    if (computed === checksum) {
-      dispatchReply(cmd, payload);
-    }
-  }
+if (window.__TAURI__ && window.__TAURI__.event) {
+  window.__TAURI__.event.listen('clipboard-ready', async function(evt) {
+    const btnIdx = evt.payload;
+    await handleClipboardReady(btnIdx);
+  });
 }
 
 async function handleClipboardReady(btnIdx) {
@@ -223,202 +275,7 @@ async function handleClipboardReady(btnIdx) {
     await navigator.clipboard.writeText(action.text);
     console.log('[StreamDeck] Clipboard written:', action.text.length, 'chars');
   } catch (e) {
-    console.warn('[StreamDeck] Clipboard write failed:', e.message);
-  }
-}
-
-function dispatchReply(cmd, payload) {
-  const resolver = pendingResolvers.shift();
-  if (resolver) resolver({ cmd, payload });
-}
-
-async function sendPacket(cmd, payloadBytes) {
-  const len = payloadBytes.length;
-  const header = new Uint8Array([SOF, cmd, len & 0xFF, (len >> 8) & 0xFF]);
-  let checksum = cmd + header[2] + header[3];
-  for (const b of payloadBytes) checksum += b;
-  checksum &= 0xFF;
-
-  const packet = new Uint8Array(header.length + payloadBytes.length + 1);
-  packet.set(header, 0);
-  packet.set(payloadBytes, header.length);
-  packet[packet.length - 1] = checksum;
-
-  await writer.write(packet);
-}
-
-function waitForReply(timeoutMs) {
-  if (timeoutMs === undefined) timeoutMs = 2000;
-  return new Promise(function(resolve, reject) {
-    const timer = setTimeout(function() {
-      const idx = pendingResolvers.indexOf(wrapped);
-      if (idx !== -1) pendingResolvers.splice(idx, 1);
-      reject(new Error('Timed out waiting for device reply'));
-    }, timeoutMs);
-    function wrapped(result) { clearTimeout(timer); resolve(result); }
-    pendingResolvers.push(wrapped);
-  });
-}
-
-async function sendAndWait(cmd, payloadBytes, timeoutMs) {
-  const p = waitForReply(timeoutMs);
-  await sendPacket(cmd, payloadBytes);
-  return p;
-}
-
-// ---------------------------------------------------------------------------
-// Mapping (de)serialization
-// ---------------------------------------------------------------------------
-
-function parseMappingTable(bytes) {
-  if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
-  const buttons = [];
-  let offset = 8;
-  for (let i = 0; i < NUM_BUTTONS; i++) {
-    buttons.push(parseButtonAction(bytes, offset));
-    offset += ACTION_SIZE;
-  }
-  return buttons;
-}
-
-function parseButtonAction(bytes, offset) {
-  const type = bytes[offset];
-  const dataOffset = offset + 1;
-  const labelOffset = offset + 1 + 258;
-  const label = bytesToString(bytes, labelOffset, 24);
-
-  let action = { type: type, label: label };
-  if (type === ACTION_KEY) {
-    action.modifier = bytes[dataOffset];
-    action.keycode = bytes[dataOffset + 1];
-  } else if (type === ACTION_CONSUMER) {
-    action.consumerCode = bytes[dataOffset] | (bytes[dataOffset + 1] << 8);
-  } else if (type === ACTION_MACRO) {
-    action.steps = [];
-    for (let i = 0; i < MAX_MACRO_STEPS; i++) {
-      action.steps.push({ modifier: bytes[dataOffset + i*2], keycode: bytes[dataOffset + i*2 + 1] });
-    }
-    action.count = bytes[dataOffset + MAX_MACRO_STEPS * 2];
-  } else if (type === ACTION_TEXT) {
-    action.text = bytesToString(bytes, dataOffset, TEXT_MAX_LEN);
-    action.len = bytes[dataOffset + TEXT_MAX_LEN] | (bytes[dataOffset + TEXT_MAX_LEN + 1] << 8);
-  } else if (type === ACTION_PASTE) {
-    action.text = bytesToString(bytes, dataOffset, TEXT_MAX_LEN);
-    action.len = bytes[dataOffset + TEXT_MAX_LEN] | (bytes[dataOffset + TEXT_MAX_LEN + 1] << 8);
-  } else if (type === ACTION_LAUNCHER) {
-    action.launcherOs = bytes[dataOffset];
-    action.text = bytesToString(bytes, dataOffset + 1, 255);
-  }
-  return action;
-}
-
-function bytesToString(bytes, offset, maxLen) {
-  let s = '';
-  for (let i = 0; i < maxLen; i++) {
-    const c = bytes[offset + i];
-    if (c === 0) break;
-    s += String.fromCharCode(c);
-  }
-  return s;
-}
-
-function serializeButtonAction(action) {
-  const buf = new Uint8Array(ACTION_SIZE);
-  buf[0] = action.type;
-  const dataOffset = 1;
-  if (action.type === ACTION_KEY) {
-    buf[dataOffset] = action.modifier || 0;
-    buf[dataOffset + 1] = action.keycode || 0;
-  } else if (action.type === ACTION_CONSUMER) {
-    buf[dataOffset] = (action.consumerCode || 0) & 0xFF;
-    buf[dataOffset + 1] = ((action.consumerCode || 0) >> 8) & 0xFF;
-  } else if (action.type === ACTION_TEXT || action.type === ACTION_PASTE) {
-    const text = (action.text || '').slice(0, TEXT_MAX_LEN - 1);
-    for (let i = 0; i < text.length; i++) buf[dataOffset + i] = text.charCodeAt(i);
-    buf[dataOffset + TEXT_MAX_LEN] = text.length & 0xFF;
-    buf[dataOffset + TEXT_MAX_LEN + 1] = (text.length >> 8) & 0xFF;
-  } else if (action.type === ACTION_LAUNCHER) {
-    buf[dataOffset] = action.launcherOs || 0;
-    const text = (action.text || '').slice(0, 255);
-    for (let i = 0; i < text.length; i++) buf[dataOffset + 1 + i] = text.charCodeAt(i);
-  } else if (action.type === ACTION_MACRO) {
-    const steps = action.steps || [];
-    for (let i = 0; i < MAX_MACRO_STEPS; i++) {
-      if (i < steps.length) {
-        buf[dataOffset + i*2] = steps[i].modifier || 0;
-        buf[dataOffset + i*2 + 1] = steps[i].keycode || 0;
-      }
-    }
-    buf[dataOffset + MAX_MACRO_STEPS * 2] = steps.length & 0xFF;
-  }
-  const labelOffset = 1 + 258;
-  const label = (action.label || '').slice(0, 23);
-  for (let i = 0; i < label.length; i++) buf[labelOffset + i] = label.charCodeAt(i);
-  return buf;
-}
-
-// ---------------------------------------------------------------------------
-// UI
-// ---------------------------------------------------------------------------
-
-let currentMapping = [];
-
-const KEY_OPTIONS = [
-  { label: 'F13', mod: 0, key: 0x68 }, { label: 'F14', mod: 0, key: 0x69 },
-  { label: 'F15', mod: 0, key: 0x6A }, { label: 'F16', mod: 0, key: 0x6B },
-  { label: 'F17', mod: 0, key: 0x6C }, { label: 'F18', mod: 0, key: 0x6D },
-  { label: 'Ctrl+C', mod: 0x01, key: 0x06 }, { label: 'Ctrl+V', mod: 0x01, key: 0x19 },
-  { label: 'Ctrl+Z', mod: 0x01, key: 0x1D }, { label: 'Ctrl+A', mod: 0x01, key: 0x04 },
-  { label: 'Ctrl+X', mod: 0x01, key: 0x1B }, { label: 'Ctrl+S', mod: 0x01, key: 0x16 },
-  { label: 'Ctrl+Shift+T', mod: 0x03, key: 0x17 },
-  { label: 'Cmd+C (Mac)', mod: 0x08, key: 0x06 },
-  { label: 'Cmd+V (Mac)', mod: 0x08, key: 0x19 },
-  { label: 'Cmd+Tab (Mac App Switch)', mod: 0x08, key: 0x2B },
-  { label: 'Alt+Tab (Win App Switch)', mod: 0x05, key: 0x2B },
-  { label: 'Ctrl+Alt+Del', mod: 0x05, key: 0x4C },
-  { label: 'Tab', mod: 0, key: 0x2B }, { label: 'Enter', mod: 0, key: 0x28 },
-  { label: 'Escape', mod: 0, key: 0x29 }, { label: 'Space', mod: 0, key: 0x2C },
-  { label: 'Backspace', mod: 0, key: 0x2A },
-  { label: 'Delete', mod: 0, key: 0x4C }, { label: 'Insert', mod: 0, key: 0x49 },
-  { label: 'Home', mod: 0, key: 0x4A }, { label: 'End', mod: 0, key: 0x4D },
-  { label: 'Page Up', mod: 0, key: 0x4B }, { label: 'Page Down', mod: 0, key: 0x4E },
-  { label: 'Up Arrow', mod: 0, key: 0x52 }, { label: 'Down Arrow', mod: 0, key: 0x51 },
-  { label: 'Left Arrow', mod: 0, key: 0x50 }, { label: 'Right Arrow', mod: 0, key: 0x4F },
-];
-
-const CONSUMER_OPTIONS = [
-  { label: 'Volume Up', code: 0x00E9 }, { label: 'Volume Down', code: 0x00EA },
-  { label: 'Mute', code: 0x00E2 }, { label: 'Play/Pause', code: 0x00CD },
-  { label: 'Next Track', code: 0x00B5 }, { label: 'Prev Track', code: 0x00B6 },
-  { label: 'Stop', code: 0x00B7 }, { label: 'Eject', code: 0x00B8 },
-  { label: 'Mail', code: 0x018C }, { label: 'Calculator', code: 0x0192 },
-  { label: 'My Computer', code: 0x0194 },
-];
-
-const QUICK_MACRO_COMBOS = [
-  { label: 'Ctrl+C', steps: [{ modifier: 0x01, keycode: 0x06 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Ctrl+V', steps: [{ modifier: 0x01, keycode: 0x19 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Ctrl+Z', steps: [{ modifier: 0x01, keycode: 0x1D }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Ctrl+A', steps: [{ modifier: 0x01, keycode: 0x04 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Ctrl+X', steps: [{ modifier: 0x01, keycode: 0x1B }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Ctrl+S', steps: [{ modifier: 0x01, keycode: 0x16 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Cmd+C (Mac)', steps: [{ modifier: 0x08, keycode: 0x06 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Cmd+V (Mac)', steps: [{ modifier: 0x08, keycode: 0x19 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Tab', steps: [{ modifier: 0, keycode: 0x2B }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Enter', steps: [{ modifier: 0, keycode: 0x28 }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Space', steps: [{ modifier: 0, keycode: 0x2C }, { modifier: 0, keycode: 0x00 }] },
-  { label: 'Pause (200ms)', steps: [{ modifier: 0, keycode: 0xFF }] },
-];
-
-async function loadMapping() {
-  try {
-    setStatus('Loading mapping...', null);
-    const { payload } = await sendAndWait(CMD_GET_MAPPING, new Uint8Array(0));
-    currentMapping = parseMappingTable(payload);
-    renderGrid();
-    setStatus('Connected', 'ok');
-  } catch (e) {
-    setStatus('Load failed: ' + e.message, 'err');
+    console.warn('[StreamDeck] Clipboard write failed:', e);
   }
 }
 
@@ -483,8 +340,6 @@ function onRecordKeyUp(e) {
   if (key === recordingCtx.lastKey && key !== 0) {
     recordingCtx.lastKey = null;
   }
-  // When all modifiers are released, add a release marker so firmware
-  // flushes the accumulated keys as one combo.
   if ((mod & 0x0F) === 0 && recordingCtx.steps.length > 0) {
     const last = recordingCtx.steps[recordingCtx.steps.length - 1];
     if (last.keycode !== 0x00 && last.keycode !== 0xFF) {
@@ -494,6 +349,57 @@ function onRecordKeyUp(e) {
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// UI options
+// ---------------------------------------------------------------------------
+
+const KEY_OPTIONS = [
+  { label: 'F13', mod: 0, key: 0x68 }, { label: 'F14', mod: 0, key: 0x69 },
+  { label: 'F15', mod: 0, key: 0x6A }, { label: 'F16', mod: 0, key: 0x6B },
+  { label: 'F17', mod: 0, key: 0x6C }, { label: 'F18', mod: 0, key: 0x6D },
+  { label: 'Ctrl+C', mod: 0x01, key: 0x06 }, { label: 'Ctrl+V', mod: 0x01, key: 0x19 },
+  { label: 'Ctrl+Z', mod: 0x01, key: 0x1D }, { label: 'Ctrl+A', mod: 0x01, key: 0x04 },
+  { label: 'Ctrl+X', mod: 0x01, key: 0x1B }, { label: 'Ctrl+S', mod: 0x01, key: 0x16 },
+  { label: 'Ctrl+Shift+T', mod: 0x03, key: 0x17 },
+  { label: 'Cmd+C (Mac)', mod: 0x08, key: 0x06 },
+  { label: 'Cmd+V (Mac)', mod: 0x08, key: 0x19 },
+  { label: 'Cmd+Tab (Mac App Switch)', mod: 0x08, key: 0x2B },
+  { label: 'Alt+Tab (Win App Switch)', mod: 0x05, key: 0x2B },
+  { label: 'Ctrl+Alt+Del', mod: 0x05, key: 0x4C },
+  { label: 'Tab', mod: 0, key: 0x2B }, { label: 'Enter', mod: 0, key: 0x28 },
+  { label: 'Escape', mod: 0, key: 0x29 }, { label: 'Space', mod: 0, key: 0x2C },
+  { label: 'Backspace', mod: 0, key: 0x2A },
+  { label: 'Delete', mod: 0, key: 0x4C }, { label: 'Insert', mod: 0, key: 0x49 },
+  { label: 'Home', mod: 0, key: 0x4A }, { label: 'End', mod: 0, key: 0x4D },
+  { label: 'Page Up', mod: 0, key: 0x4B }, { label: 'Page Down', mod: 0, key: 0x4E },
+  { label: 'Up Arrow', mod: 0, key: 0x52 }, { label: 'Down Arrow', mod: 0, key: 0x51 },
+  { label: 'Left Arrow', mod: 0, key: 0x50 }, { label: 'Right Arrow', mod: 0, key: 0x4F },
+];
+
+const CONSUMER_OPTIONS = [
+  { label: 'Volume Up', code: 0x00E9 }, { label: 'Volume Down', code: 0x00EA },
+  { label: 'Mute', code: 0x00E2 }, { label: 'Play/Pause', code: 0x00CD },
+  { label: 'Next Track', code: 0x00B5 }, { label: 'Prev Track', code: 0x00B6 },
+  { label: 'Stop', code: 0x00B7 }, { label: 'Eject', code: 0x00B8 },
+  { label: 'Mail', code: 0x018C }, { label: 'Calculator', code: 0x0192 },
+  { label: 'My Computer', code: 0x0194 },
+];
+
+const QUICK_MACRO_COMBOS = [
+  { label: 'Ctrl+C', steps: [{ modifier: 0x01, keycode: 0x06 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Ctrl+V', steps: [{ modifier: 0x01, keycode: 0x19 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Ctrl+Z', steps: [{ modifier: 0x01, keycode: 0x1D }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Ctrl+A', steps: [{ modifier: 0x01, keycode: 0x04 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Ctrl+X', steps: [{ modifier: 0x01, keycode: 0x1B }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Ctrl+S', steps: [{ modifier: 0x01, keycode: 0x16 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Cmd+C (Mac)', steps: [{ modifier: 0x08, keycode: 0x06 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Cmd+V (Mac)', steps: [{ modifier: 0x08, keycode: 0x19 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Tab', steps: [{ modifier: 0, keycode: 0x2B }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Enter', steps: [{ modifier: 0, keycode: 0x28 }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Space', steps: [{ modifier: 0, keycode: 0x2C }, { modifier: 0, keycode: 0x00 }] },
+  { label: 'Pause (200ms)', steps: [{ modifier: 0, keycode: 0xFF }] },
+];
 
 // ---------------------------------------------------------------------------
 // Render grid
@@ -589,13 +495,27 @@ function renderGrid() {
         detailWrap.appendChild(labeled('Open search with', sel));
         detailWrap._osSel = sel;
 
+        const appRow = document.createElement('div');
+        appRow.style.cssText = 'display:flex;gap:6px;align-items:flex-end;';
+
         const appInput = document.createElement('input');
         appInput.type = 'text';
         appInput.maxLength = 255;
         appInput.value = action.text || '';
         appInput.placeholder = 'e.g. Chrome, Spotify, Terminal';
-        detailWrap.appendChild(labeled('App name to launch', appInput));
+        appInput.style.flex = '1';
         detailWrap._appInput = appInput;
+
+        const browseBtn = document.createElement('button');
+        browseBtn.textContent = 'Browse apps';
+        browseBtn.style.cssText = 'font-size:11px;padding:4px 8px;white-space:nowrap;';
+        browseBtn.addEventListener('click', async function() {
+          await showAppBrowser(appInput);
+        });
+
+        appRow.appendChild(labeled('App name to launch', appInput));
+        appRow.appendChild(browseBtn);
+        detailWrap.appendChild(appRow);
 
         const hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:4px;';
@@ -735,6 +655,10 @@ function labeled(text, control) {
   return wrap;
 }
 
+// ---------------------------------------------------------------------------
+// Apply button via Tauri
+// ---------------------------------------------------------------------------
+
 async function applyButton(idx, typeSelect, detailWrap, labelInput) {
   const type = parseInt(typeSelect.value, 10);
   const action = { type: type, label: labelInput.value };
@@ -756,30 +680,109 @@ async function applyButton(idx, typeSelect, detailWrap, labelInput) {
   }
 
   currentMapping[idx] = action;
-  const actionBytes = serializeButtonAction(action);
-  const payload = new Uint8Array(1 + actionBytes.length);
-  payload[0] = idx;
-  payload.set(actionBytes, 1);
 
   try {
     setStatus('Applying...', null);
-    await sendAndWait(CMD_SET_BUTTON, payload);
+    await invoke('set_button', { idx: idx, action: action });
     setStatus('Applied live (not yet saved to flash)', 'ok');
   } catch (e) {
-    setStatus('Apply failed: ' + e.message, 'err');
+    setStatus('Apply failed: ' + e, 'err');
   }
 }
+
+// ---------------------------------------------------------------------------
+// Save to flash via Tauri
+// ---------------------------------------------------------------------------
 
 async function saveFlash() {
   try {
     setStatus('Saving to flash...', null);
-    const { payload } = await sendAndWait(CMD_SAVE_FLASH, new Uint8Array(0), 4000);
-    if (payload[0] === 1) {
+    const ok = await invoke('save_flash');
+    if (ok) {
       setStatus('Saved to flash', 'ok');
     } else {
       setStatus('Flash save reported failure', 'err');
     }
   } catch (e) {
-    setStatus('Save failed: ' + e.message, 'err');
+    setStatus('Save failed: ' + e, 'err');
   }
+}
+
+// ---------------------------------------------------------------------------
+// App browser (list_installed_apps via Tauri)
+// ---------------------------------------------------------------------------
+
+async function showAppBrowser(targetInput) {
+  let apps;
+  try {
+    apps = await invoke('list_installed_apps');
+  } catch (e) {
+    setStatus('Failed to list apps: ' + e, 'err');
+    return;
+  }
+
+  if (!apps || apps.length === 0) {
+    setStatus('No installed apps found', 'err');
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'recording-overlay';
+
+  const box = document.createElement('div');
+  box.className = 'box';
+  box.style.minWidth = '400px';
+  box.style.maxWidth = '500px';
+
+  const h2 = document.createElement('h2');
+  h2.textContent = 'Browse Installed Apps';
+  box.appendChild(h2);
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.placeholder = 'Search apps...';
+  searchInput.style.width = '100%';
+  searchInput.style.marginBottom = '8px';
+  box.appendChild(searchInput);
+
+  const listEl = document.createElement('div');
+  listEl.style.cssText = 'max-height:300px;overflow-y:auto;border:1px solid #333;border-radius:4px;';
+  box.appendChild(listEl);
+
+  function renderList(filter) {
+    listEl.innerHTML = '';
+    const lf = (filter || '').toLowerCase();
+    const filtered = lf ? apps.filter(function(a) { return a.toLowerCase().indexOf(lf) !== -1; }) : apps;
+    filtered.forEach(function(appName) {
+      const item = document.createElement('div');
+      item.textContent = appName;
+      item.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid #222;';
+      item.addEventListener('mouseenter', function() { item.style.background = '#2a2e3a'; });
+      item.addEventListener('mouseleave', function() { item.style.background = ''; });
+      item.addEventListener('click', function() {
+        targetInput.value = appName;
+        overlay.remove();
+      });
+      listEl.appendChild(item);
+    });
+  }
+
+  renderList('');
+  searchInput.addEventListener('input', function() {
+    renderList(searchInput.value);
+  });
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Cancel';
+  closeBtn.className = 'secondary';
+  closeBtn.addEventListener('click', function() { overlay.remove(); });
+  btnRow.appendChild(closeBtn);
+
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  searchInput.focus();
 }
