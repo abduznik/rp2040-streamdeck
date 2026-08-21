@@ -38,10 +38,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install Tauri CLI
-        run: npm install --prefix app
-      - name: Build macOS app
-        run: cd app && npm run tauri build
+      - name: Install & Build
+        run: |
+          cd app
+          npm install
+          npx tauri build
       - uses: actions/upload-artifact@v4
         with:
           name: StreamDeck-Config-macOS
@@ -54,10 +55,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install Tauri CLI
-        run: npm install --prefix app
-      - name: Build Windows app
-        run: cd app && npm run tauri build
+      - name: Install & Build
+        run: |
+          cd app
+          npm install
+          npx tauri build
       - uses: actions/upload-artifact@v4
         with:
           name: StreamDeck-Config-Windows
@@ -74,10 +76,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
-      - name: Install Tauri CLI
-        run: npm install --prefix app
-      - name: Build Linux app
-        run: cd app && npm run tauri build
+      - name: Install & Build
+        run: |
+          cd app
+          npm install
+          npx tauri build
       - uses: actions/upload-artifact@v4
         with:
           name: StreamDeck-Config-Linux
