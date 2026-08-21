@@ -6,6 +6,9 @@ companion/__pycache__/
 
 # Old project structure (use firmware/ instead)
 /src/
+BUILD_MACOS.md
+CMakeLists.txt
+pico_sdk_import.cmake
 
 # OS files
 .DS_Store
