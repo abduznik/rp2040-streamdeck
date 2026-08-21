@@ -15,6 +15,7 @@
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -134,7 +135,8 @@ button.record.recording { animation: pulse 1s infinite; background: #c0392b; }
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  max-width: 960px;
+  max-width: 100%;
+  padding: 0 24px 24px;
 }
 
 .card {

@@ -13,10 +13,14 @@
     "windows": [
       {
         "label": "main",
-        "width": 1000,
-        "height": 700,
+        "title": "StreamDeck Config",
+        "width": 1100,
+        "height": 750,
+        "minWidth": 900,
+        "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {

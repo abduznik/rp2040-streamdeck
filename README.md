@@ -22,7 +22,7 @@ Open-source USB stream deck firmware for RP2040 boards (RP2040-Zero, etc.). Turn
 |-----------|----------|-------|
 | **RP2040-Zero** | 1 | Any RP2040 board works, but the Zero is compact and has USB-C |
 | **MX-compatible switches** | 6 (or your count) | Cherry MX, Gateron, Kailh, etc. — 3-pin or 5-pin |
-| **Wire** | ~15 cm | 26-28 AWG solid core or stranded, any colors |
+| **Wire** | ~5-10 cm | 26-28 AWG solid core or stranded, any colors |
 | **Keycaps** | 6 (or your count) | MX-compatible keycaps |
 | **3D-printed case** | 1 | See [Enclosure](#enclosure) below |
 | **USB-C cable** | 1 | For connection and power |
