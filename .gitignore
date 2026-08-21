@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 firmware/build/
+app/src-tauri/target/
 companion/__pycache__/
 *.pyc
 
