@@ -5,7 +5,7 @@ companion/__pycache__/
 *.pyc
 
 # Old project structure (use firmware/ instead)
-src/
+/src/
 
 # OS files
 .DS_Store
