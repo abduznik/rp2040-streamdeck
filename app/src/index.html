@@ -779,9 +779,72 @@ function renderGrid() {
         detailWrap.appendChild(labeled('App name to launch', appInput));
         detailWrap._appInput = appInput;
 
+        // Browse installed apps (Tauri native)
+        if (window.__TAURI_INTERNALS__) {
+          const browseRow = document.createElement('div');
+          browseRow.style.cssText = 'display:flex;gap:4px;margin-top:6px;';
+          const browseBtn = document.createElement('button');
+          browseBtn.textContent = 'Browse installed apps';
+          browseBtn.style.cssText = 'font-size:11px;padding:4px 8px;';
+          browseBtn.addEventListener('click', async function() {
+            try {
+              const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+              const apps = await invoke('list_installed_apps');
+              if (!apps || apps.length === 0) { setStatus('No apps found', 'err'); return; }
+              // Build a searchable overlay
+              const overlay = document.createElement('div');
+              overlay.className = 'recording-overlay';
+              const box = document.createElement('div');
+              box.className = 'box';
+              box.style.minWidth = '360px';
+              box.style.maxWidth = '480px';
+              box.style.maxHeight = '70vh';
+              box.style.overflow = 'auto';
+              const h2 = document.createElement('h2');
+              h2.textContent = 'Select App';
+              box.appendChild(h2);
+              const search = document.createElement('input');
+              search.type = 'text';
+              search.placeholder = 'Search apps...';
+              search.style.cssText = 'width:100%;margin-bottom:8px;';
+              box.appendChild(search);
+              const list = document.createElement('div');
+              list.style.cssText = 'display:flex;flex-direction:column;gap:4px;text-align:left;';
+              function renderList(filter) {
+                list.innerHTML = '';
+                apps.filter(function(a) { return !filter || a.toLowerCase().indexOf(filter) > -1; })
+                    .slice(0, 100).forEach(function(a) {
+                  const item = document.createElement('button');
+                  item.textContent = a;
+                  item.style.cssText = 'width:100%;text-align:left;font-size:12px;background:#2a2e3a;';
+                  item.addEventListener('click', function() {
+                    appInput.value = a;
+                    overlay.remove();
+                  });
+                  list.appendChild(item);
+                });
+              }
+              renderList('');
+              search.addEventListener('input', function() { renderList(search.value.toLowerCase().trim()); });
+              box.appendChild(list);
+              const closeBtn = document.createElement('button');
+              closeBtn.textContent = 'Close';
+              closeBtn.className = 'secondary';
+              closeBtn.style.cssText = 'margin-top:8px;';
+              closeBtn.addEventListener('click', function() { overlay.remove(); });
+              box.appendChild(closeBtn);
+              overlay.appendChild(box);
+              document.body.appendChild(overlay);
+              search.focus();
+            } catch (e) { setStatus('Browse failed: ' + e, 'err'); }
+          });
+          browseRow.appendChild(browseBtn);
+          detailWrap.appendChild(browseRow);
+        }
+
         const hint = document.createElement('div');
         hint.style.cssText = 'font-size:11px;color:var(--muted);margin-top:4px;';
-        hint.textContent = 'Opens Spotlight/Start menu, types the app name, and presses Enter.';
+        hint.textContent = 'Launches the app natively via the desktop app (open -a / xdg-open).';
         detailWrap.appendChild(hint);
 
       } else if (type === ACTION_MACRO) {
