@@ -255,22 +255,63 @@ async function connect() {
       grid.innerHTML = '<div class="empty-state"><h3>No device</h3><p>Click Connect.</p></div>';
       return;
     }
+    // Show port picker overlay
     try {
       setStatus('Scanning ports...', null);
       const ports = await invoke('list_ports');
       if (!ports || ports.length === 0) { setStatus('No serial ports found', 'err'); return; }
-      const portName = ports.length === 1 ? ports[0] : prompt('Select serial port:\n' + ports.join('\n'), ports[0]);
-      if (!portName) { setStatus('Cancelled', null); return; }
-      setStatus('Connecting...', null);
-      const result = await invoke('connect_port', { portName: portName });
-      connected = true;
-      currentPort = portName;
-      setStatus(result, 'ok');
-      connectBtn.textContent = 'Disconnect';
-      saveFlashBtn.disabled = false;
-      refreshBtn.disabled = false;
-      await loadMapping();
-    } catch (e) { setStatus('Connect failed: ' + e, 'err'); }
+
+      // Build overlay
+      const overlay = document.createElement('div');
+      overlay.className = 'recording-overlay';
+      const box = document.createElement('div');
+      box.className = 'box';
+      box.style.minWidth = '320px';
+      const h2 = document.createElement('h2');
+      h2.textContent = 'Select Serial Port';
+      box.appendChild(h2);
+      const sel = document.createElement('select');
+      sel.style.width = '100%';
+      sel.style.marginBottom = '12px';
+      ports.forEach(function(p) {
+        const opt = document.createElement('option');
+        opt.value = p; opt.textContent = p;
+        sel.appendChild(opt);
+      });
+      box.appendChild(sel);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px;';
+      const connectOk = document.createElement('button');
+      connectOk.textContent = 'Connect';
+      connectOk.addEventListener('click', async function() {
+        const portName = sel.value;
+        overlay.remove();
+        try {
+          setStatus('Connecting to ' + portName + '...', null);
+          const result = await invoke('connect_port', { portName: portName });
+          connected = true;
+          currentPort = portName;
+          setStatus(result, 'ok');
+          connectBtn.textContent = 'Disconnect';
+          saveFlashBtn.disabled = false;
+          refreshBtn.disabled = false;
+          await loadMapping();
+        } catch (e) { setStatus('Connect failed: ' + e, 'err'); }
+      });
+      btnRow.appendChild(connectOk);
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'secondary';
+      cancelBtn.addEventListener('click', function() {
+        overlay.remove();
+        setStatus('Not connected', null);
+      });
+      btnRow.appendChild(cancelBtn);
+      box.appendChild(btnRow);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      setStatus('Select a port', null);
+    } catch (e) { setStatus('Failed to list ports: ' + e, 'err'); }
     return;
   }
   // --- WebSerial path (Chrome/Edge only) ---
