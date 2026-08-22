@@ -1,5 +1,4 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicegram/nicegram-tauri/refs/heads/main/nicegram-tauri.schema.json",
   "productName": "StreamDeck Config",
   "version": "1.0.0",
   "identifier": "com.streamdeck.config",

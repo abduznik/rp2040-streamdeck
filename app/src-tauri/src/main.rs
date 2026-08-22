@@ -149,13 +149,21 @@ fn get_port(state: State<AppState>) -> Result<String, String> {
 struct ButtonAction {
     #[serde(rename = "type")]
     action_type: u8,
+    #[serde(default)]
     modifier: u8,
+    #[serde(default)]
     keycode: u8,
+    #[serde(default)]
     consumer_code: u16,
+    #[serde(default)]
     text: String,
+    #[serde(default)]
     launcher_os: u8,
+    #[serde(default)]
     label: String,
+    #[serde(default)]
     macro_steps: Vec<MacroStep>,
+    #[serde(default)]
     macro_count: u8,
 }
 

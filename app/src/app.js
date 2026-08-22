@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Tauri StreamDeck Config – uses window.__TAURI__.core.invoke() for all IPC
+// Tauri StreamDeck Config – uses __TAURI_INTERNALS__.invoke() for all IPC
 // ---------------------------------------------------------------------------
 const ACTION_SIZE = 1 + 258 + 24;
 
@@ -12,7 +12,10 @@ const MAX_MACRO_STEPS = 16;
 const TEXT_MAX_LEN = 256;
 
 function invoke(command, args) {
-  return window.__TAURI__.core.invoke(command, args || {});
+  if (window.__TAURI_INTERNALS__) {
+    return window.__TAURI_INTERNALS__.invoke(command, args || {});
+  }
+  throw new Error('Tauri API not available — is this running inside the desktop app?');
 }
 
 // ---------------------------------------------------------------------------
@@ -260,8 +263,8 @@ async function loadMapping() {
 
 let currentMapping = [];
 
-if (window.__TAURI__ && window.__TAURI__.event) {
-  window.__TAURI__.event.listen('clipboard-ready', async function(evt) {
+if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.event) {
+  window.__TAURI_INTERNALS__.event.listen('clipboard-ready', async function(evt) {
     const btnIdx = evt.payload;
     await handleClipboardReady(btnIdx);
   });
