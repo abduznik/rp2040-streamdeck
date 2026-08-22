@@ -1,6 +1,6 @@
 # RP2040 Stream Deck
 
-Open-source USB stream deck firmware for RP2040 boards (RP2040-Zero, etc.). Turn any RP2040 microcontroller into a fully configurable stream deck with web-based configuration and a companion app.
+Open-source USB stream deck firmware for RP2040 boards (RP2040-Zero, etc.). Turn any RP2040 microcontroller into a fully configurable stream deck with a native desktop app.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-RP2040-pink)
@@ -8,9 +8,8 @@ Open-source USB stream deck firmware for RP2040 boards (RP2040-Zero, etc.). Turn
 ## Features
 
 - **Composite HID+CDC USB Device** — acts as both a keyboard and a serial port for configuration
-- **Webconfig UI** — configure buttons from your browser via Chrome/Edge WebSerial
-- **Desktop App** — native Tauri app for macOS, Windows, and Linux
-- **Companion App** — Python background service for native OS app launching
+- **Desktop App** — native Tauri app for macOS, Windows, and Linux with serial port access
+- **Native App Launching** — launch apps directly via OS APIs (no keyboard shortcuts)
 - **7 Action Types** — key press, consumer control, macro (true combos), text, paste, app launcher
 - **Configurable Pins** — remap any button to any GPIO, any number of buttons
 - **Flash Storage** — persist button configs to on-chip flash with CRC32 validation
@@ -142,16 +141,11 @@ Each MX switch has 2 metal pins on the bottom. Wire one pin to GPIO, the other t
 
 3. **Flash** — hold BOOTSEL on the RP2040-Zero, plug in USB, then drag `streamdeck.uf2` onto the `RPI-RP2` drive that appears.
 
-4. **Configure** — open the webconfig in Chrome/Edge, or use the desktop app.
+4. **Configure** — open the StreamDeck Config desktop app and connect to your device.
 
-## Webconfig
+## Desktop App
 
-1. Open `webconfig/index.html` in Chrome or Edge (WebSerial required).
-2. Click **Connect** and select the stream deck's serial port.
-3. Configure each button's action type, then click **Apply live**.
-4. Click **Save to flash** to persist across power cycles.
-
-## Desktop App (Tauri)
+The native Tauri app provides full device configuration:
 
 ```bash
 cd app
@@ -162,15 +156,14 @@ npm run build   # production build
 
 Native apps for macOS (DMG), Windows (EXE), and Linux (AppImage) are available in [Releases](https://github.com/abduznik/rp2040-streamdeck/releases).
 
-## Companion App
+### Features
+- **Connect** — select your serial port from a dropdown
+- **Configure buttons** — 7 action types with full UI
+- **App Launcher** — browse installed apps, launch natively via `open -a` / `xdg-open`
+- **Macro Recorder** — record key combos by pressing them
+- **Save to Flash** — persist mappings across power cycles
 
-The companion app runs in the background and launches apps natively when an **App Launcher** button is pressed:
-
-```bash
-pip install pyserial
-cd companion
-python companion.py --port /dev/cu.usbmodem1102
-```
+## Companion App (Optional)
 
 See [companion/README.md](companion/README.md) for details.
 

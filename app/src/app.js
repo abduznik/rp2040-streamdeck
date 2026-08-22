@@ -217,12 +217,14 @@ async function doConnect(portName) {
     saveFlashBtn.disabled = false;
     refreshBtn.disabled = false;
     await loadMapping();
+    startPolling();
   } catch (e) {
     setStatus('Connect failed: ' + e, 'err');
   }
 }
 
 async function doDisconnect() {
+  stopPolling();
   try {
     await invoke('disconnect_port');
   } catch (e) {
@@ -254,32 +256,40 @@ async function loadMapping() {
 }
 
 // ---------------------------------------------------------------------------
-// Paste / clipboard handling
+// Button press polling — firmware sends 0xBE notifications
 // ---------------------------------------------------------------------------
-// The firmware sends a 0xBE notification when a Paste button is pressed.
-// In the WebSerial version this came via the serial read loop. In the Tauri
-// version the backend should listen for that packet and emit a Tauri event.
-// We listen for it here.
 
 let currentMapping = [];
+let pollInterval = null;
 
-if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.event) {
-  window.__TAURI_INTERNALS__.event.listen('clipboard-ready', async function(evt) {
-    const btnIdx = evt.payload;
-    await handleClipboardReady(btnIdx);
-  });
+async function pollButtonPresses() {
+  if (!connected) return;
+  try {
+    const result = await invoke('poll_button_press');
+    if (result !== null && result !== undefined) {
+      const btnIdx = result;
+      if (btnIdx < currentMapping.length) {
+        const action = currentMapping[btnIdx];
+        if (action.type === ACTION_LAUNCHER && action.text) {
+          console.log('[StreamDeck] Launching app:', action.text);
+          await invoke('launch_app_by_name', { appName: action.text });
+        } else if (action.type === ACTION_PASTE && action.text) {
+          await navigator.clipboard.writeText(action.text);
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore poll errors
+  }
 }
 
-async function handleClipboardReady(btnIdx) {
-  if (btnIdx >= currentMapping.length) return;
-  const action = currentMapping[btnIdx];
-  if (!action || action.type !== ACTION_PASTE || !action.text) return;
-  try {
-    await navigator.clipboard.writeText(action.text);
-    console.log('[StreamDeck] Clipboard written:', action.text.length, 'chars');
-  } catch (e) {
-    console.warn('[StreamDeck] Clipboard write failed:', e);
-  }
+function startPolling() {
+  if (pollInterval) return;
+  pollInterval = setInterval(pollButtonPresses, 100);
+}
+
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
 }
 
 // ---------------------------------------------------------------------------
