@@ -97,106 +97,6 @@
 
 <script>
 // ---------------------------------------------------------------------------
-// Tauri adapter: intercepts WebSerial calls and routes to Rust backend
-// ---------------------------------------------------------------------------
-(function() {
-  if (!window.__TAURI_INTERNALS__) return; // not in Tauri, use WebSerial as-is
-
-  const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
-
-  async function tauriConnect() {
-    try {
-      setStatus('Scanning ports...', null);
-      const ports = await invoke('list_ports');
-      if (!ports || ports.length === 0) { setStatus('No serial ports found', 'err'); return; }
-      const portName = ports.length === 1 ? ports[0] : prompt('Select serial port:\n' + ports.join('\n'), ports[0]);
-      if (!portName) { setStatus('Cancelled', null); return; }
-      setStatus('Connecting...', null);
-      const result = await invoke('connect_port', { portName: portName });
-      connected = true;
-      currentPort = portName;
-      setStatus(result, 'ok');
-      connectBtn.textContent = 'Disconnect';
-      saveFlashBtn.disabled = false;
-      refreshBtn.disabled = false;
-      await tauriLoadMapping();
-    } catch (e) { setStatus('Connect failed: ' + e, 'err'); }
-  }
-
-  async function tauriLoadMapping() {
-    try {
-      setStatus('Loading mapping...', null);
-      const mapping = await invoke('get_mapping');
-      currentMapping = mapping || [];
-      renderGrid();
-      setStatus('Connected', 'ok');
-    } catch (e) { setStatus('Load failed: ' + e, 'err'); }
-  }
-
-  async function tauriSaveFlash() {
-    try {
-      setStatus('Saving to flash...', null);
-      const ok = await invoke('save_flash');
-      setStatus(ok ? 'Saved to flash' : 'Flash save failed', ok ? 'ok' : 'err');
-    } catch (e) { setStatus('Save failed: ' + e, 'err'); }
-  }
-
-  async function tauriDisconnect() {
-    try { await invoke('disconnect_port'); } catch(e) {}
-    connected = false; currentPort = null;
-    setStatus('Disconnected', null);
-    connectBtn.textContent = 'Connect';
-    saveFlashBtn.disabled = true; refreshBtn.disabled = true;
-    grid.innerHTML = '<div class="empty-state"><h3>No device</h3><p>Click Connect.</p></div>';
-  }
-
-  async function tauriApplyButton(idx, typeSelect, detailWrap, labelInput) {
-    const type = parseInt(typeSelect.value, 10);
-    const action = { type: type, label: labelInput.value };
-    if (type === 1 && detailWrap._sel) { const p = JSON.parse(detailWrap._sel.value); action.modifier = p.mod; action.keycode = p.key; }
-    else if (type === 2 && detailWrap._sel) { action.consumerCode = parseInt(detailWrap._sel.value, 10); }
-    else if ((type === 4 || type === 5) && detailWrap._sel) { action.text = detailWrap._sel.value; }
-    else if (type === 6 && detailWrap._sel) { action.launcherOs = parseInt(detailWrap._sel.value, 10); }
-    else if (type === 3 && detailWrap._steps) { action.steps = detailWrap._steps; action.count = detailWrap._steps.length; }
-    currentMapping[idx] = action;
-    try {
-      setStatus('Applying...', null);
-      await invoke('set_button', { idx: idx, action: action });
-      setStatus('Applied live (not yet saved to flash)', 'ok');
-    } catch (e) { setStatus('Apply failed: ' + e, 'err'); }
-  }
-
-  setInterval(async function() {
-    if (!connected) return;
-    try {
-      const result = await invoke('poll_button_press');
-      if (result !== null && result !== undefined) {
-        const action = currentMapping[result];
-        if (action && action.type === 6 && action.text) await invoke('launch_app_by_name', { appName: action.text });
-        else if (action && action.type === 5 && action.text) await navigator.clipboard.writeText(action.text);
-      }
-    } catch(e) {}
-  }, 100);
-
-  document.addEventListener('DOMContentLoaded', function() {
-    connectBtn.onclick = function() { if (connected) tauriDisconnect(); else tauriConnect(); };
-    saveFlashBtn.onclick = tauriSaveFlash;
-    refreshBtn.onclick = tauriLoadMapping;
-    window.applyButton = tauriApplyButton;
-    window.handleClipboardReady = async function(btnIdx) {
-      if (btnIdx >= currentMapping.length) return;
-      const action = currentMapping[btnIdx];
-      if (!action) return;
-      if (action.type === 6 && action.text) await invoke('launch_app_by_name', { appName: action.text });
-      else if (action.type === 5 && action.text) await navigator.clipboard.writeText(action.text);
-    };
-    const footer = document.querySelector('footer');
-    if (footer) footer.textContent = 'Native desktop app — serial port connection. Save to flash persists mappings.';
-  });
-})();
-</script>
-<script>
-// ---------------------------------------------------------------------------
 // Protocol constants
 // ---------------------------------------------------------------------------
 const SOF = 0xAA;
@@ -342,6 +242,38 @@ saveFlashBtn.addEventListener('click', saveFlash);
 refreshBtn.addEventListener('click', loadMapping);
 
 async function connect() {
+  // --- Tauri path: use Rust serial backend ---
+  if (window.__TAURI_INTERNALS__) {
+    const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+    // If already connected, disconnect
+    if (connected) {
+      try { await invoke('disconnect_port'); } catch(e) {}
+      connected = false; currentPort = null;
+      setStatus('Disconnected', null);
+      connectBtn.textContent = 'Connect';
+      saveFlashBtn.disabled = true; refreshBtn.disabled = true;
+      grid.innerHTML = '<div class="empty-state"><h3>No device</h3><p>Click Connect.</p></div>';
+      return;
+    }
+    try {
+      setStatus('Scanning ports...', null);
+      const ports = await invoke('list_ports');
+      if (!ports || ports.length === 0) { setStatus('No serial ports found', 'err'); return; }
+      const portName = ports.length === 1 ? ports[0] : prompt('Select serial port:\n' + ports.join('\n'), ports[0]);
+      if (!portName) { setStatus('Cancelled', null); return; }
+      setStatus('Connecting...', null);
+      const result = await invoke('connect_port', { portName: portName });
+      connected = true;
+      currentPort = portName;
+      setStatus(result, 'ok');
+      connectBtn.textContent = 'Disconnect';
+      saveFlashBtn.disabled = false;
+      refreshBtn.disabled = false;
+      await loadMapping();
+    } catch (e) { setStatus('Connect failed: ' + e, 'err'); }
+    return;
+  }
+  // --- WebSerial path (Chrome/Edge only) ---
   if (!('serial' in navigator)) {
     setStatus('WebSerial not supported - use Chrome or Edge', 'err');
     return;
@@ -607,6 +539,17 @@ const QUICK_MACRO_COMBOS = [
 ];
 
 async function loadMapping() {
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+      setStatus('Loading mapping...', null);
+      const mapping = await invoke('get_mapping');
+      currentMapping = mapping || [];
+      renderGrid();
+      setStatus('Connected', 'ok');
+    } catch (e) { setStatus('Load failed: ' + e, 'err'); }
+    return;
+  }
   try {
     setStatus('Loading mapping...', null);
     const { payload } = await sendAndWait(CMD_GET_MAPPING, new Uint8Array(0));
@@ -952,6 +895,19 @@ async function applyButton(idx, typeSelect, detailWrap, labelInput) {
   }
 
   currentMapping[idx] = action;
+
+  // --- Tauri path ---
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+      setStatus('Applying...', null);
+      await invoke('set_button', { idx: idx, action: action });
+      setStatus('Applied live (not yet saved to flash)', 'ok');
+    } catch (e) { setStatus('Apply failed: ' + e, 'err'); }
+    return;
+  }
+
+  // --- WebSerial path ---
   const actionBytes = serializeButtonAction(action);
   const payload = new Uint8Array(1 + actionBytes.length);
   payload[0] = idx;
@@ -967,6 +923,18 @@ async function applyButton(idx, typeSelect, detailWrap, labelInput) {
 }
 
 async function saveFlash() {
+  // --- Tauri path ---
+  if (window.__TAURI_INTERNALS__) {
+    try {
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+      setStatus('Saving to flash...', null);
+      const ok = await invoke('save_flash');
+      setStatus(ok ? 'Saved to flash' : 'Flash save failed', ok ? 'ok' : 'err');
+    } catch (e) { setStatus('Save failed: ' + e, 'err'); }
+    return;
+  }
+
+  // --- WebSerial path ---
   try {
     setStatus('Saving to flash...', null);
     const { payload } = await sendAndWait(CMD_SAVE_FLASH, new Uint8Array(0), 4000);
@@ -1018,4 +986,23 @@ async function saveFlash() {
     if (origHandler) return origHandler(btnIdx);
   };
 })();
+
+// Tauri: poll for button press notifications (0xBE)
+if (window.__TAURI_INTERNALS__) {
+  setInterval(async function() {
+    if (!connected) return;
+    try {
+      const invoke = (cmd, args) => window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+      const result = await invoke('poll_button_press');
+      if (result !== null && result !== undefined) {
+        const action = currentMapping[result];
+        if (action && action.type === 6 && action.text) {
+          await invoke('launch_app_by_name', { appName: action.text });
+        } else if (action && action.type === 5 && action.text) {
+          await navigator.clipboard.writeText(action.text);
+        }
+      }
+    } catch(e) {}
+  }, 100);
+}
 </script>
