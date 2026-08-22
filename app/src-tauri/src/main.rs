@@ -216,6 +216,24 @@ fn save_flash(state: State<AppState>) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn poll_button_press(state: State<AppState>) -> Result<Option<usize>, String> {
+    let mut port = state.port.lock().unwrap();
+    let port = port.as_mut().ok_or("Not connected")?;
+    port.set_timeout(std::time::Duration::from_millis(50)).ok();
+    let mut read_buf = state.read_buf.lock().unwrap();
+    let mut chunk = [0u8; 256];
+    if let Ok(n) = port.read(&mut chunk) { read_buf.extend_from_slice(&chunk[..n]); }
+    while let Some(pos) = read_buf.iter().position(|&b| b == 0xBE) {
+        if pos + 1 < read_buf.len() {
+            let idx = read_buf[pos + 1] as usize;
+            read_buf.drain(..=pos + 1);
+            if idx < NUM_BUTTONS { return Ok(Some(idx)); }
+        } else { break; }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
 fn launch_app_by_name(app_name: String) -> Result<(), String> {
     if app_name.trim().is_empty() { return Err("No app name".into()); }
     launch_app(&app_name);
@@ -244,7 +262,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState { port: Mutex::new(None), port_name: Mutex::new(String::new()), read_buf: Mutex::new(Vec::new()) })
-        .invoke_handler(tauri::generate_handler![list_ports, connect_port, disconnect_port, get_port, get_mapping, set_button, save_flash, launch_app_by_name, list_installed_apps])
+        .invoke_handler(tauri::generate_handler![list_ports, connect_port, disconnect_port, get_port, get_mapping, set_button, save_flash, poll_button_press, launch_app_by_name, list_installed_apps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
