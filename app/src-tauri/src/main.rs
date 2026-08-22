@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::sync::Mutex;
+use tauri::Manager;
 use tauri::State;
 
 const SOF: u8 = 0xAA;
@@ -262,6 +263,67 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(AppState { port: Mutex::new(None), port_name: Mutex::new(String::new()), read_buf: Mutex::new(Vec::new()) })
+        .setup(|app| {
+            // Prevent window from being destroyed on close — hide to tray instead
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let win = window.clone();
+                    window.on_window_event(move |event| {
+                        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                            win.hide().unwrap();
+                            api.prevent_close();
+                        }
+                    });
+                }
+            }
+
+            // Set up tray icon
+            {
+                use tauri::menu::{Menu, MenuItem};
+                use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+                let show_item = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+                let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+                let _tray = TrayIconBuilder::with_id("streamdeck-tray")
+                    .icon(app.default_window_icon().unwrap().clone())
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(move |app, event| {
+                        match event.id.as_ref() {
+                            "show" => {
+                                if let Some(w) = app.get_webview_window("main") {
+                                    w.show().unwrap();
+                                    w.set_focus().unwrap();
+                                }
+                            }
+                            "quit" => {
+                                app.exit(0);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            let app = tray.app_handle();
+                            if let Some(w) = app.get_webview_window("main") {
+                                w.show().unwrap();
+                                w.set_focus().unwrap();
+                            }
+                        }
+                    })
+                    .build(app)?;
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![list_ports, connect_port, disconnect_port, get_port, get_mapping, set_button, save_flash, poll_button_press, launch_app_by_name, list_installed_apps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

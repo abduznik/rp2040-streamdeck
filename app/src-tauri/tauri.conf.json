@@ -22,6 +22,13 @@
         "center": true
       }
     ],
+    "trayIcon": {
+      "iconPath": "icons/32x32.png",
+      "iconAsTemplate": true,
+      "tooltip": "StreamDeck Config",
+      "showMenuOnLeftClick": true,
+      "menuOnLeftClick": false
+    },
     "security": {
       "csp": null
     }
