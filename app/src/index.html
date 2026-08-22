@@ -223,6 +223,8 @@ function jsModToHid(e) {
 let port = null;
 let reader = null;
 let writer = null;
+let connected = false;
+let currentPort = null;
 let rxBuffer = [];
 let pendingResolvers = [];
 
